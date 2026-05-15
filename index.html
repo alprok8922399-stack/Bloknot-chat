@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Простой блокнот</title>
+  <style>
+    html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial}
+    #toolbar{display:flex;gap:8px;padding:8px;background:#f3f3f3;border-bottom:1px solid #ddd}
+    textarea{width:100%;height:calc(100% - 56px);box-sizing:border-box;padding:12px;border:0;resize:none;font-size:16px;line-height:1.4}
+    button{padding:6px 10px}
+    #status{margin-left:auto;color:#555;font-size:13px;align-self:center}
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <button id="newBtn">Новый</button>
+    <button id="saveBtn">Сохранить</button>
+    <button id="clearBtn">Очистить</button>
+    <label>
+      Имя: <input id="nameInput" placeholder="Ваше имя" style="padding:4px;margin-left:6px">
+    </label>
+    <div id="status">Сохранений: 0</div>
+  </div>
+  <textarea id="notepad" placeholder="Пиши здесь..."></textarea>
+
+  <script>
+    const key = 'simple-shared-notepad';
+    const txt = document.getElementById('notepad');
+    const saveBtn = document.getElementById('saveBtn');
+    const newBtn = document.getElementById('newBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const nameInput = document.getElementById('nameInput');
+    const status = document.getElementById('status');
+
+    // загрузка при старте
+    function load() {
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      try {
+        const obj = JSON.parse(raw);
+        txt.value = obj.content || '';
+        nameInput.value = obj.name || '';
+        status.textContent = 'Сохранений: ' + (obj.count||1);
+      } catch (e) {}
+    }
+
+    // сохранение в localStorage
+    function save() {
+      const obj = {
+        content: txt.value,
+        name: nameInput.value || '',
+        ts: Date.now(),
+        count: (JSON.parse(localStorage.getItem(key))?.count || 0) + 1
+      };
+      localStorage.setItem(key, JSON.stringify(obj));
+      status.textContent = 'Сохранений: ' + obj.count;
+    }
+
+    // новый документ (сохраняет текущий в history)
+    function newDoc() {
+      if (confirm('Создать новый документ? Текущий будет сохранён в локальное хранилище.')) {
+        save();
+        txt.value = '';
+      }
+    }
+
+    // очистить без сохранения
+    function clearDoc(){
+      if (confirm('Очистить поле (без сохранения)?')) txt.value = '';
+    }
+
+    // авто‑сохранение при вводе (через 2 секунды паузы)
+    let timeout;
+    txt.addEventListener('input', () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(save, 2000);
+    });
+
+    saveBtn.addEventListener('click', save);
+    newBtn.addEventListener('click', newDoc);
+    clearBtn.addEventListener('click', clearDoc);
+
+    // Просмотр изменений, сделанных в другом окне — обновляем видимое содержимое и показываем кто сохранил
+    window.addEventListener('storage', (e) => {
+      if (e.key !== key) return;
+      try {
+        const obj = JSON.parse(e.newValue);
+        // Не перезаписываем, если пользователь сейчас печатает (есть активный фокус)
+        if (document.activeElement === txt) return;
+        txt.value = obj.content || '';
+        if (obj.name) status.textContent = 'Сохранено: ' + obj.name;
+        else status.textContent = 'Сохранено в другом окне';
+      } catch (err) {}
+    });
+
+    // Инициализация
+    load();
+  </script>
+</body>
+</html>

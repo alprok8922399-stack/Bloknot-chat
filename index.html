@@ -25,7 +25,7 @@
     .btn-secondary{background:#eee;color:#222}
     .msg-controls{position:absolute;right:8px;top:8px;display:flex;gap:6px}
     .author{font-weight:600}
-    .emoji-bar{display:flex;gap:8px;align-items:center}
+    .emoji-bar{display:flex;gap:8px;align-items:center;margin-top:6px}
     .emoji{font-size:20px;cursor:pointer;padding:6px;border-radius:6px;background:#fff;border:1px solid #eee}
     @media (max-width:520px){
       .input-row{flex-direction:column;align-items:stretch}
@@ -46,6 +46,8 @@
 
       <div class="input-row">
         <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+          <textarea id="text" placeholder="Сообщение" required></textarea>
+
           <div class="emoji-bar" id="emojiBar" aria-hidden="false" title="Вставить смайлик">
             <div class="emoji">😀</div>
             <div class="emoji">😂</div>
@@ -53,7 +55,6 @@
             <div class="emoji">😢</div>
             <div class="emoji">👍</div>
           </div>
-          <textarea id="text" placeholder="Сообщение" required></textarea>
         </div>
 
         <div style="display:flex;flex-direction:column;gap:8px">

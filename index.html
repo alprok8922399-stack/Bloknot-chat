@@ -9,15 +9,20 @@
     header{background:#111;color:#fff;padding:12px 16px}
     main{flex:1;display:flex;flex-direction:column;padding:12px;gap:8px;background:#f5f5f5}
     .messages{flex:1;overflow:auto;background:#fff;padding:12px;border-radius:6px;border:1px solid #e0e0e0}
-    .msg{padding:8px;border-bottom:1px solid #eee}
+    .msg{padding:8px;border-bottom:1px solid #eee;position:relative}
     .msg:last-child{border-bottom:0}
-    .meta{font-size:12px;color:#666}
+    .meta{font-size:12px;color:#666;margin-top:6px}
+    .edited{font-size:11px;color:#888;margin-left:8px}
     form{display:flex;flex-direction:column;gap:8px}
     input[type="text"], textarea{padding:8px;border:1px solid #ccc;border-radius:6px;font-family:inherit}
     .name{width:100%;max-width:320px}
     textarea{resize:none;overflow:auto;min-height:44px;max-height:160px;line-height:1.2}
     .controls{display:flex;gap:8px;align-items:center}
     .send-btn{padding:8px 12px;border-radius:6px;border:0;background:#0077ff;color:#fff}
+    .btn-small{padding:6px 8px;border-radius:6px;border:0;background:#0077ff;color:#fff;font-size:13px}
+    .btn-secondary{background:#eee;color:#222}
+    .msg-controls{position:absolute;right:8px;top:8px;display:flex;gap:6px}
+    .author{font-weight:600}
     @media (min-width:640px){ main{padding:18px} .name{max-width:420px} }
   </style>
 </head>
@@ -74,7 +79,7 @@
       try{ localStorage.setItem(LS_NAME_KEY, n); }catch(e){}
     }
 
-    function saveMessage(name, text){
+    function pushMessage(name, text){
       const ref = database.ref('messages').push();
       ref.set({
         name: name || 'Аноним',
@@ -83,15 +88,66 @@
       }).catch(err => console.error('Ошибка записи:', err));
     }
 
-    function renderMessage(msg){
+    function updateMessage(key, patch){
+      const ref = database.ref('messages/' + key);
+      return ref.update(patch).catch(err => console.error('Ошибка обновления:', err));
+    }
+
+    // В памяти — чтобы можно откатить при отмене
+    const messagesCache = {}; // key -> {name,text,time,timeEdited}
+
+    function renderMessage(key, msg){
+      const existing = document.getElementById('msg-'+key);
+      if(existing){
+        // обновляем содержимое
+        const textEl = existing.querySelector('.msg-text');
+        const metaEl = existing.querySelector('.meta-time');
+        const editedEl = existing.querySelector('.edited');
+        textEl.innerHTML = '<div style="white-space:pre-wrap;">' + escapeHtml(msg.text||'') + '</div>';
+        metaEl.textContent = formatTime(msg.time || Date.now());
+        if(msg.timeEdited){
+          editedEl.textContent = 'отредактировано ' + formatTime(msg.timeEdited);
+          editedEl.style.display = 'inline';
+        } else { editedEl.style.display = 'none'; }
+        return;
+      }
+
       const div = document.createElement('div');
       div.className = 'msg';
-      const time = new Date(msg.time || Date.now());
-      const hh = time.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-      div.innerHTML = '<div><strong>' + escapeHtml(msg.name||'') + '</strong></div>'
-                    + '<div style="white-space:pre-wrap;margin-top:6px;">' + escapeHtml(msg.text||'') + '</div>'
-                    + '<div class="meta">' + hh + '</div>';
+      div.id = 'msg-' + key;
+
+      const authorDiv = document.createElement('div');
+      authorDiv.innerHTML = '<span class="author">' + escapeHtml(msg.name||'') + '</span>';
+      div.appendChild(authorDiv);
+
+      const textDiv = document.createElement('div');
+      textDiv.className = 'msg-text';
+      textDiv.style.marginTop = '6px';
+      textDiv.innerHTML = '<div style="white-space:pre-wrap;">' + escapeHtml(msg.text||'') + '</div>';
+      div.appendChild(textDiv);
+
+      const metaDiv = document.createElement('div');
+      metaDiv.className = 'meta';
+      metaDiv.innerHTML = '<span class="meta-time">' + formatTime(msg.time || Date.now()) + '</span>'
+                        + (msg.timeEdited ? '<span class="edited">отредактировано ' + formatTime(msg.timeEdited) + '</span>' 
+                                         : '<span class="edited" style="display:none"></span>');
+      div.appendChild(metaDiv);
+
+      // Контролы (редактировать) — видим только если имя совпадает
+      const myName = localStorage.getItem(LS_NAME_KEY) || '';
+      if(myName && myName === (msg.name || '')){
+        const controls = document.createElement('div');
+        controls.className = 'msg-controls';
+        const editBtn = document.createElement('button');
+        editBtn.className = 'btn-small';
+        editBtn.textContent = 'Изменить';
+        editBtn.addEventListener('click', () => enterEditMode(key));
+        controls.appendChild(editBtn);
+        div.appendChild(controls);
+      }
+
       messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
     function escapeHtml(s){
@@ -99,25 +155,45 @@
       return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
     }
 
+    function formatTime(ts){
+      const time = new Date(ts || Date.now());
+      return time.toLocaleString([], {hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'});
+    }
+
     function listenMessages(){
-      const ref = database.ref('messages').limitToLast(200);
+      const ref = database.ref('messages').limitToLast(500);
       ref.off();
+
       ref.on('child_added', snapshot => {
+        const key = snapshot.key;
         const msg = snapshot.val();
-        renderMessage(msg);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+        messagesCache[key] = msg;
+        renderMessage(key, msg);
+      });
+
+      ref.on('child_changed', snapshot => {
+        const key = snapshot.key;
+        const msg = snapshot.val();
+        messagesCache[key] = msg;
+        renderMessage(key, msg);
+      });
+
+      ref.on('child_removed', snapshot => {
+        const key = snapshot.key;
+        const el = document.getElementById('msg-' + key);
+        if(el) el.remove();
+        delete messagesCache[key];
       });
     }
 
-    function clearMessagesUI(){ messagesEl.innerHTML = ''; }
+    function clearMessagesUI(){ messagesEl.innerHTML = ''; messagesCache = {}; }
 
-    // Авто-растягивание textarea (высота по контенту)
+    // Авто-растягивание textarea
     function autoResizeTextarea(el){
       el.style.height = 'auto';
       el.style.height = Math.min(el.scrollHeight, 160) + 'px';
     }
     textInput.addEventListener('input', () => autoResizeTextarea(textInput));
-    // Инициалный вызов
     autoResizeTextarea(textInput);
 
     form.addEventListener('submit', function(e){
@@ -126,14 +202,82 @@
       const text = textInput.value.trim();
       if(!text) return;
       saveNameLocally(name);
-      saveMessage(name, text);
+      pushMessage(name, text);
       textInput.value = '';
       autoResizeTextarea(textInput);
       textInput.focus();
     });
 
+    // Редактирование сообщений
+    function enterEditMode(key){
+      const container = document.getElementById('msg-' + key);
+      if(!container) return;
+      const msg = messagesCache[key];
+      if(!msg) return;
+      // Скрыть контролы временно
+      const controls = container.querySelector('.msg-controls');
+      if(controls) controls.style.display = 'none';
+
+      // Текущий текст
+      const textDiv = container.querySelector('.msg-text');
+      const originalText = msg.text || '';
+
+      // Создаём textarea и кнопки
+      const editArea = document.createElement('textarea');
+      editArea.value = originalText;
+      editArea.style.width = '100%';
+      editArea.style.boxSizing = 'border-box';
+      editArea.style.marginTop = '6px';
+      editArea.style.minHeight = '64px';
+      editArea.style.maxHeight = '200px';
+      editArea.style.padding = '8px';
+      editArea.style.borderRadius = '6px';
+
+      // Заменяем текстDiv на editArea (скрываем, но оставим для отката)
+      textDiv.style.display = 'none';
+      textDiv.parentNode.insertBefore(editArea, textDiv.nextSibling);
+      editArea.focus();
+      // кнопки сохранить/отмена
+      const btnSave = document.createElement('button');
+      btnSave.className = 'btn-small';
+      btnSave.textContent = 'Сохранить';
+      const btnCancel = document.createElement('button');
+      btnCancel.className = 'btn-small btn-secondary';
+      btnCancel.textContent = 'Отменить';
+      const btnWrap = document.createElement('div');
+      btnWrap.style.marginTop = '8px';
+      btnWrap.style.display = 'flex';
+      btnWrap.style.gap = '8px';
+      btnWrap.appendChild(btnSave);
+      btnWrap.appendChild(btnCancel);
+      editArea.parentNode.insertBefore(btnWrap, editArea.nextSibling);
+
+      btnSave.addEventListener('click', async () => {
+        const newText = editArea.value.trim();
+        if(!newText) return;
+        // обновляем в базе
+        await updateMessage(key, { text: newText, timeEdited: Date.now() });
+        // завершение edit mode
+        exitEditMode(key, editArea, btnWrap, textDiv);
+      });
+      btnCancel.addEventListener('click', () => {
+        // просто откат
+        exitEditMode(key, editArea, btnWrap, textDiv);
+      });
+    }
+
+    function exitEditMode(key, editArea, btnWrap, textDiv){
+      if(editArea) editArea.remove();
+      if(btnWrap) btnWrap.remove();
+      if(textDiv) textDiv.style.display = '';
+      const container = document.getElementById('msg-' + key);
+      if(container){
+        const controls = container.querySelector('.msg-controls');
+        if(controls) controls.style.display = '';
+      }
+    }
+
     (function init(){
-      clearMessagesUI();
       listenMessages();
     })();
   </script>

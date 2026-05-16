@@ -12,11 +12,13 @@
     .msg{padding:8px;border-bottom:1px solid #eee}
     .msg:last-child{border-bottom:0}
     .meta{font-size:12px;color:#666}
-    form{display:flex;gap:8px;align-items:center}
-    input[type="text"]{padding:8px;border:1px solid #ccc;border-radius:6px;flex:1}
-    button{padding:8px 12px;border-radius:6px;border:0;background:#0077ff;color:#fff}
-    .name{width:120px;flex:0 0 120px}
-    @media (max-width:420px){.name{width:100px;flex:0 0 100px}}
+    form{display:flex;flex-direction:column;gap:8px}
+    input[type="text"], textarea{padding:8px;border:1px solid #ccc;border-radius:6px;font-family:inherit}
+    .name{width:100%;max-width:320px}
+    textarea{resize:none;overflow:auto;min-height:44px;max-height:160px;line-height:1.2}
+    .controls{display:flex;gap:8px;align-items:center}
+    .send-btn{padding:8px 12px;border-radius:6px;border:0;background:#0077ff;color:#fff}
+    @media (min-width:640px){ main{padding:18px} .name{max-width:420px} }
   </style>
 </head>
 <body>
@@ -29,10 +31,13 @@
 
     <form id="form">
       <input class="name" id="name" type="text" placeholder="Имя" maxlength="30" />
-      <input id="text" type="text" placeholder="Сообщение" autocomplete="off" required />
-      <button type="submit">Отправить</button>
+      <textarea id="text" placeholder="Сообщение" required></textarea>
+
+      <div class="controls">
+        <button type="submit" class="send-btn">Отправить</button>
+        <div style="font-size:12px;color:#666">Сообщения синхронизируются через Firebase — откройте ту же страницу у друга.</div>
+      </div>
     </form>
-    <div style="font-size:12px;color:#666">Сообщения синхронизируются через Firebase — откройте ту же страницу у другого человека, чтобы видеть новые сообщения.</div>
   </main>
 
   <!-- Firebase (compat CDN) -->
@@ -51,17 +56,14 @@
       measurementId: "G-QYHQ01M9F2"
     };
 
-    // Инициализация Firebase
     firebase.initializeApp(firebaseConfig);
     const database = firebase.database();
 
-    // UI элементы
     const form = document.getElementById('form');
     const nameInput = document.getElementById('name');
     const textInput = document.getElementById('text');
     const messagesEl = document.getElementById('messages');
 
-    // Локальный псевдо-ник: сохраняем имя в localStorage
     const LS_NAME_KEY = 'simple_chat_name';
     (function loadName(){
       const saved = localStorage.getItem(LS_NAME_KEY);
@@ -72,7 +74,6 @@
       try{ localStorage.setItem(LS_NAME_KEY, n); }catch(e){}
     }
 
-    // Отправка сообщения в Realtime Database
     function saveMessage(name, text){
       const ref = database.ref('messages').push();
       ref.set({
@@ -82,42 +83,43 @@
       }).catch(err => console.error('Ошибка записи:', err));
     }
 
-    // Отрисовка одного сообщения
     function renderMessage(msg){
       const div = document.createElement('div');
       div.className = 'msg';
       const time = new Date(msg.time || Date.now());
       const hh = time.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
       div.innerHTML = '<div><strong>' + escapeHtml(msg.name||'') + '</strong></div>'
-                    + '<div>' + escapeHtml(msg.text||'') + '</div>'
+                    + '<div style="white-space:pre-wrap;margin-top:6px;">' + escapeHtml(msg.text||'') + '</div>'
                     + '<div class="meta">' + hh + '</div>';
       messagesEl.appendChild(div);
     }
 
-    // Экранирование простое
     function escapeHtml(s){
       if(!s) return '';
       return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
     }
 
-    // Подписка на новые сообщения (последние 200)
     function listenMessages(){
       const ref = database.ref('messages').limitToLast(200);
-      ref.off(); // на всякий случай
+      ref.off();
       ref.on('child_added', snapshot => {
         const msg = snapshot.val();
         renderMessage(msg);
-        // Прокрутка вниз
         messagesEl.scrollTop = messagesEl.scrollHeight;
       });
     }
 
-    // Очистка и загрузка существующих сообщений (необязательно)
-    function clearMessagesUI(){
-      messagesEl.innerHTML = '';
-    }
+    function clearMessagesUI(){ messagesEl.innerHTML = ''; }
 
-    // Обработка отправки формы
+    // Авто-растягивание textarea (высота по контенту)
+    function autoResizeTextarea(el){
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+    }
+    textInput.addEventListener('input', () => autoResizeTextarea(textInput));
+    // Инициалный вызов
+    autoResizeTextarea(textInput);
+
     form.addEventListener('submit', function(e){
       e.preventDefault();
       const name = nameInput.value.trim() || 'Аноним';
@@ -126,10 +128,10 @@
       saveNameLocally(name);
       saveMessage(name, text);
       textInput.value = '';
+      autoResizeTextarea(textInput);
       textInput.focus();
     });
 
-    // Инициализация
     (function init(){
       clearMessagesUI();
       listenMessages();

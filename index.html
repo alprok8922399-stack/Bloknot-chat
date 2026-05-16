@@ -1,320 +1,286 @@
 <!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Простой чат (Firebase)</title>
-  <style>
-    :root{--accent:#0077ff;--muted:#666}
-    body{font-family:system-ui,Arial,sans-serif;margin:0;padding:0;display:flex;flex-direction:column;height:100vh}
-    header{background:#111;color:#fff;padding:12px 16px}
-    main{flex:1;display:flex;flex-direction:column;padding:12px;gap:8px;background:#f5f5f5}
-    .messages{flex:1;overflow:auto;background:#fff;padding:12px;border-radius:6px;border:1px solid #e0e0e0}
-    .msg{padding:8px;border-bottom:1px solid #eee;position:relative}
-    .msg:last-child{border-bottom:0}
-    .meta{font-size:12px;color:var(--muted);margin-top:6px;display:flex;gap:8px;align-items:center}
-    .edited{font-size:11px;color:#888}
-    form{display:flex;flex-direction:column;gap:8px}
-    input[type="text"], textarea{padding:8px;border:1px solid #ccc;border-radius:6px;font-family:inherit}
-    .name{width:100%;max-width:420px}
-    textarea{resize:none;overflow:auto;min-height:56px;max-height:160px;line-height:1.2;flex:1}
-    .input-row{display:flex;gap:8px;align-items:flex-end}
-    .controls{display:flex;gap:8px;align-items:center}
-    .send-btn{padding:8px 12px;border-radius:6px;border:0;background:var(--accent);color:#fff;white-space:nowrap}
-    .btn-small{padding:6px 8px;border-radius:6px;border:0;background:var(--accent);color:#fff;font-size:13px}
-    .btn-secondary{background:#eee;color:#222}
-    .msg-controls{position:absolute;right:8px;top:8px;display:flex;gap:6px}
-    .author{font-weight:600}
-    /* Перенесённая панель эмодзи: строка под textarea, слева от кнопки Отправить */
-    .emoji-row{display:flex;align-items:center;gap:8px}
-    .emoji-bar{display:flex;gap:8px;align-items:center;margin-top:0}
-    .emoji{font-size:20px;cursor:pointer;padding:6px;border-radius:6px;background:#fff;border:1px solid #eee}
-    @media (max-width:520px){
-      .input-row{flex-direction:column;align-items:stretch}
-      .send-right{align-self:flex-end}
-      .emoji-row{flex-direction:row;justify-content:space-between;align-items:center}
-    }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Чат — с эмодзи в строке ввода</title>
+<style>
+  :root{
+    --bg:#fafafa;
+    --input-bg:#fff;
+    --accent:#1a73e8;
+    --muted:#777;
+    --border:#e0e0e0;
+  }
+  html,body{height:100%;margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;}
+  body{background:var(--bg);display:flex;flex-direction:column}
+  .app {
+    display:flex;
+    flex-direction:column;
+    height:100vh;
+    overflow:hidden;
+  }
+
+  /* Секция сообщений (скроллируемая) */
+  .messages {
+    flex:1 1 auto;
+    overflow:auto;
+    padding:16px;
+    box-sizing:border-box;
+  }
+  .msg {
+    margin-bottom:10px;
+    background:#fff;
+    border:1px solid var(--border);
+    padding:8px 10px;
+    border-radius:8px;
+    max-width:80%;
+    word-wrap:break-word;
+  }
+  .msg.me { margin-left:auto; background:#e8f0ff; border-color:#c7dbff; }
+
+  /* Фиксированный блок ввода внизу */
+  .chat-bar {
+    position:fixed;
+    left:0;
+    right:0;
+    bottom:0;
+    background:var(--input-bg);
+    border-top:1px solid var(--border);
+    padding:8px;
+    box-sizing:border-box;
+    display:flex;
+    gap:8px;
+    align-items:flex-end;
+    z-index:1000;
+    /* учёт выреза/панели */
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+  }
+
+  /* Контейнер слева: эмодзи панель (горизонтальный список) */
+  .left-controls {
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex:0 0 auto;
+  }
+
+  /* Кнопка переключения эмодзи (маленькая) */
+  .emoji-toggle {
+    width:40px;
+    height:40px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:#fff;
+    cursor:pointer;
+    font-size:18px;
+  }
+
+  /* Горизонтальная панель эмодзи (в одну строку). Прикрыта по умолчанию */
+  .emoji-strip {
+    display:flex;
+    gap:6px;
+    align-items:center;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    max-width:220px; /* подгоните под нужную ширину */
+    padding:4px;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:#fff;
+    height:40px;
+    box-sizing:border-box;
+  }
+
+  .emoji-strip button {
+    border:0;
+    background:transparent;
+    font-size:20px;
+    cursor:pointer;
+    padding:2px 6px;
+    border-radius:6px;
+  }
+  .emoji-strip button:active { background:#f0f0f0; }
+
+  /* Текстовое поле — занимает всё доступное место */
+  .input-wrap {
+    flex:1 1 auto;
+    display:flex;
+    align-items:flex-end;
+    gap:8px;
+    min-width:0; /* важно для корректного сокращения на мобильных */
+  }
+  textarea#msg {
+    width:100%;
+    min-height:44px;
+    max-height:140px;
+    resize:none;
+    padding:8px;
+    border-radius:8px;
+    border:1px solid var(--border);
+    box-sizing:border-box;
+    font-size:15px;
+    line-height:1.2;
+    background:#fff;
+  }
+
+  /* Кнопка отправки справа */
+  .send-btn {
+    flex:0 0 auto;
+    margin-left:6px;
+    height:44px;
+    padding:0 12px;
+    border:0;
+    background:var(--accent);
+    color:#fff;
+    border-radius:8px;
+    cursor:pointer;
+    font-weight:600;
+  }
+
+  /* Отступ для сообщений равный высоте .chat-bar */
+  .messages-padding {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Нормализация на очень узких экранах: emoji-strip скрывается за toggle */
+  @media (max-width:420px){
+    .emoji-strip { max-width:120px; }
+    .emoji-toggle { width:36px; height:36px; font-size:16px; }
+    textarea#msg { min-height:40px; }
+  }
+</style>
 </head>
 <body>
-  <header>
-    <strong>Простой чат (Firebase Realtime Database)</strong>
-  </header>
-
-  <main>
-    <div class="messages" id="messages" aria-live="polite"></div>
-
-    <form id="form">
-      <input class="name" id="name" type="text" placeholder="Имя" maxlength="30" />
-
-      <div class="input-row">
-        <div style="flex:1;display:flex;flex-direction:column;gap:6px">
-          <textarea id="text" placeholder="Сообщение" required></textarea>
-
-          <!-- Новая строка: слева панель эмодзи, справа кнопка отправить -->
-          <div class="emoji-row">
-            <div class="emoji-bar" id="emojiBar" aria-hidden="false" title="Вставить смайлик">
-              <div class="emoji">😀</div>
-              <div class="emoji">😂</div>
-              <div class="emoji">😮</div>
-              <div class="emoji">😢</div>
-              <div class="emoji">👍</div>
-            </div>
-
-            <div style="margin-left:auto">
-              <button type="submit" class="send-btn send-right">Отправить</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div style="font-size:12px;color:var(--muted)">Сообщения синхронизируются через Firebase — откройте ту же страницу у друга.</div>
-    </form>
+<div class="app">
+  <main class="messages messages-padding" id="messages" aria-live="polite">
+    <!-- Пример сообщений -->
+    <div class="msg">Привет! Это тестовое сообщение.</div>
+    <div class="msg me">Моё сообщение.</div>
   </main>
 
-  <!-- Firebase (compat CDN) -->
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <div class="chat-bar" id="chatBar">
+    <div class="left-controls">
+      <button class="emoji-toggle" id="emojiToggle" aria-label="Эмодзи">😊</button>
 
-  <script>
-    // Вставьте сюда ваш firebaseConfig (не менять поля)
-    const firebaseConfig = {
-      apiKey: "AIzaSyAH-VNb_wc0yuxN6tPGouzkmkWt4FQ-Fh4",
-      authDomain: "alexey-prilozenie.firebaseapp.com",
-      projectId: "alexey-prilozenie",
-      storageBucket: "alexey-prilozenie.firebasestorage.app",
-      messagingSenderId: "225561187295",
-      appId: "1:225561187295:web:90e2fb6fdb1c0360976a6a",
-      measurementId: "G-QYHQ01M9F2"
-    };
+      <div class="emoji-strip" id="emojiStrip" aria-hidden="true">
+        <!-- Вставьте/отредактируйте список эмодзи -->
+        <button class="emoji">😀</button>
+        <button class="emoji">😃</button>
+        <button class="emoji">😅</button>
+        <button class="emoji">😂</button>
+        <button class="emoji">🙂</button>
+        <button class="emoji">😉</button>
+        <button class="emoji">😮</button>
+        <button class="emoji">😢</button>
+        <button class="emoji">😡</button>
+        <button class="emoji">👍</button>
+        <button class="emoji">👎</button>
+        <button class="emoji">🙏</button>
+      </div>
+    </div>
 
-    firebase.initializeApp(firebaseConfig);
-    const database = firebase.database();
+    <div class="input-wrap">
+      <textarea id="msg" placeholder="Напишите сообщение..." rows="1" aria-label="Сообщение"></textarea>
+    </div>
 
-    const form = document.getElementById('form');
-    const nameInput = document.getElementById('name');
-    const textInput = document.getElementById('text');
-    const messagesEl = document.getElementById('messages');
-    const emojiBar = document.getElementById('emojiBar');
+    <button class="send-btn" id="sendBtn">Отправить</button>
+  </div>
+</div>
 
-    const LS_NAME_KEY = 'simple_chat_name';
-    (function loadName(){
-      const saved = localStorage.getItem(LS_NAME_KEY);
-      if(saved) nameInput.value = saved;
-    })();
+<script>
+  // Элементы
+  const msgInput = document.getElementById('msg');
+  const sendBtn = document.getElementById('sendBtn');
+  const messages = document.getElementById('messages');
+  const emojiToggle = document.getElementById('emojiToggle');
+  const emojiStrip = document.getElementById('emojiStrip');
 
-    function saveNameLocally(n){
-      try{ localStorage.setItem(LS_NAME_KEY, n); }catch(e){}
-    }
+  // Подгоняем padding-bottom сообщений под высоту chat-bar
+  function updateMessagesPadding(){
+    const chatBar = document.getElementById('chatBar');
+    const h = chatBar.getBoundingClientRect().height;
+    messages.style.paddingBottom = (h + 12) + 'px';
+  }
+  window.addEventListener('resize', updateMessagesPadding);
+  window.addEventListener('load', updateMessagesPadding);
+  // Небольшая задержка на мобильных чтобы вычисления были точнее
+  setTimeout(updateMessagesPadding,250);
 
-    function pushMessage(name, text){
-      const ref = database.ref('messages').push();
-      ref.set({
-        name: name || 'Аноним',
-        text: text,
-        time: Date.now()
-      }).catch(err => console.error('Ошибка записи:', err));
-    }
+  // Toggle видимости emojiStrip: на мобильных она всегда видима в одну строку, но можно скрывать
+  let emojiVisible = true; // по требованию можно сделать false
+  function setEmojiVisibility(v){
+    emojiVisible = v;
+    emojiStrip.style.display = v ? 'flex' : 'none';
+    emojiStrip.setAttribute('aria-hidden', v ? 'false' : 'true');
+    setTimeout(updateMessagesPadding,120);
+  }
+  // Изначально показываем (по задаче — панель слева от кнопки, в одной строке)
+  setEmojiVisibility(true);
 
-    function updateMessage(key, patch){
-      const ref = database.ref('messages/' + key);
-      return ref.update(patch).catch(err => console.error('Ошибка обновления:', err));
-    }
+  emojiToggle.addEventListener('click', () => {
+    // если хотите переключать видимость — раскомментируйте:
+    // setEmojiVisibility(!emojiVisible);
+    // Для удобства при клике фокусируем поле ввода
+    msgInput.focus();
+  });
 
-    const messagesCache = {}; // key -> msg
-
-    function escapeHtml(s){
-      if(!s) return '';
-      return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
-    }
-
-    function formatTime(ts){
-      const time = new Date(ts || Date.now());
-      return time.toLocaleString([], {hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'});
-    }
-
-    function renderMessage(key, msg){
-      const existing = document.getElementById('msg-'+key);
-      if(existing){
-        const textEl = existing.querySelector('.msg-text');
-        const metaTime = existing.querySelector('.meta-time');
-        const editedEl = existing.querySelector('.edited');
-        textEl.innerHTML = '<div style="white-space:pre-wrap;">' + escapeHtml(msg.text||'') + '</div>';
-        metaTime.textContent = formatTime(msg.time || Date.now());
-        if(msg.timeEdited){
-          editedEl.textContent = 'отредактировано ' + formatTime(msg.timeEdited);
-          editedEl.style.display = 'inline';
-        } else editedEl.style.display = 'none';
-        return;
-      }
-
-      const div = document.createElement('div');
-      div.className = 'msg';
-      div.id = 'msg-' + key;
-
-      const authorDiv = document.createElement('div');
-      authorDiv.innerHTML = '<span class="author">' + escapeHtml(msg.name||'') + '</span>';
-      div.appendChild(authorDiv);
-
-      const textDiv = document.createElement('div');
-      textDiv.className = 'msg-text';
-      textDiv.style.marginTop = '6px';
-      textDiv.innerHTML = '<div style="white-space:pre-wrap;">' + escapeHtml(msg.text||'') + '</div>';
-      div.appendChild(textDiv);
-
-      const metaDiv = document.createElement('div');
-      metaDiv.className = 'meta';
-      metaDiv.innerHTML = '<span class="meta-time">' + formatTime(msg.time || Date.now()) + '</span>'
-                        + '<span class="edited" style="margin-left:8px;display:' + (msg.timeEdited ? 'inline' : 'none') + '">'
-                        + (msg.timeEdited ? ('отредактировано ' + formatTime(msg.timeEdited)) : '') + '</span>';
-      div.appendChild(metaDiv);
-
-      const myName = localStorage.getItem(LS_NAME_KEY) || '';
-      if(myName && myName === (msg.name || '')){
-        const controls = document.createElement('div');
-        controls.className = 'msg-controls';
-        const editBtn = document.createElement('button');
-        editBtn.className = 'btn-small';
-        editBtn.textContent = 'Изменить';
-        editBtn.addEventListener('click', () => enterEditMode(key));
-        controls.appendChild(editBtn);
-        div.appendChild(controls);
-      }
-
-      messagesEl.appendChild(div);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    }
-
-    function listenMessages(){
-      const ref = database.ref('messages').limitToLast(500);
-      ref.off();
-
-      ref.on('child_added', snapshot => {
-        const key = snapshot.key;
-        const msg = snapshot.val();
-        messagesCache[key] = msg;
-        renderMessage(key, msg);
-      });
-
-      ref.on('child_changed', snapshot => {
-        const key = snapshot.key;
-        const msg = snapshot.val();
-        messagesCache[key] = msg;
-        renderMessage(key, msg);
-      });
-
-      ref.on('child_removed', snapshot => {
-        const key = snapshot.key;
-        const el = document.getElementById('msg-' + key);
-        if(el) el.remove();
-        delete messagesCache[key];
-      });
-    }
-
-    // Auto-resize textarea
-    function autoResizeTextarea(el){
-      el.style.height = 'auto';
-      el.style.height = Math.min(el.scrollHeight, 160) + 'px';
-    }
-    textInput.addEventListener('input', () => autoResizeTextarea(textInput));
-    autoResizeTextarea(textInput);
-
-    form.addEventListener('submit', function(e){
-      e.preventDefault();
-      const name = nameInput.value.trim() || 'Аноним';
-      const text = textInput.value.trim();
-      if(!text) return;
-      saveNameLocally(name);
-      pushMessage(name, text);
-      textInput.value = '';
-      autoResizeTextarea(textInput);
-      textInput.focus();
+  // Вставка эмодзи в текстареа на курсор
+  document.querySelectorAll('.emoji').forEach(btn=>{
+    btn.addEventListener('click', (e)=>{
+      const emoji = e.currentTarget.textContent || '';
+      const start = msgInput.selectionStart || 0;
+      const end = msgInput.selectionEnd || 0;
+      const val = msgInput.value || '';
+      msgInput.value = val.slice(0,start) + emoji + val.slice(end);
+      const caret = start + emoji.length;
+      msgInput.setSelectionRange(caret, caret);
+      msgInput.focus();
     });
+  });
 
-    // Emoji insertion
-    emojiBar.addEventListener('click', (e) => {
-      const target = e.target;
-      if(target.classList.contains('emoji')){
-        insertAtCursor(textInput, target.textContent);
-        autoResizeTextarea(textInput);
-        textInput.focus();
-      }
-    });
+  // Авто-рост textarea (простая реализация)
+  function autoGrow(el){
+    el.style.height = 'auto';
+    const max = 140;
+    el.style.height = Math.min(el.scrollHeight, max) + 'px';
+    updateMessagesPadding();
+  }
+  msgInput.addEventListener('input', ()=>autoGrow(msgInput));
+  msgInput.addEventListener('focus', ()=> {
+    // при фокусе можно прокрутить вниз, чтобы поле было видно над клавиатурой
+    setTimeout(()=>window.scrollTo(0, document.body.scrollHeight), 150);
+  });
 
-    function insertAtCursor(textarea, text){
-      const start = textarea.selectionStart || 0;
-      const end = textarea.selectionEnd || 0;
-      const before = textarea.value.substring(0, start);
-      const after = textarea.value.substring(end);
-      textarea.value = before + text + after;
-      const pos = start + text.length;
-      textarea.selectionStart = textarea.selectionEnd = pos;
-      textarea.dispatchEvent(new Event('input'));
-    }
+  // Отправка сообщения (локально — замените на вызов Firebase)
+  sendBtn.addEventListener('click', sendMessage);
+  msgInput.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); }
+  });
 
-    // Edit mode
-    function enterEditMode(key){
-      const container = document.getElementById('msg-' + key);
-      if(!container) return;
-      const msg = messagesCache[key];
-      if(!msg) return;
-      const controls = container.querySelector('.msg-controls');
-      if(controls) controls.style.display = 'none';
+  function sendMessage(){
+    const text = msgInput.value.trim();
+    if(!text) return;
+    appendMessage(text, true);
+    msgInput.value = '';
+    autoGrow(msgInput);
+    // TODO: отправить в Firebase (push)
+  }
 
-      const textDiv = container.querySelector('.msg-text');
-      const originalText = msg.text || '';
+  function appendMessage(text, me){
+    const d = document.createElement('div');
+    d.className = 'msg' + (me? ' me' : '');
+    d.textContent = text;
+    messages.appendChild(d);
+    // прокрутка к низу
+    setTimeout(()=> messages.scrollTop = messages.scrollHeight, 50);
+  }
 
-      const editArea = document.createElement('textarea');
-      editArea.value = originalText;
-      editArea.style.width = '100%';
-      editArea.style.boxSizing = 'border-box';
-      editArea.style.marginTop = '6px';
-      editArea.style.minHeight = '64px';
-      editArea.style.maxHeight = '200px';
-      editArea.style.padding = '8px';
-      editArea.style.borderRadius = '6px';
-
-      textDiv.style.display = 'none';
-      textDiv.parentNode.insertBefore(editArea, textDiv.nextSibling);
-      editArea.focus();
-
-      const btnSave = document.createElement('button');
-      btnSave.className = 'btn-small';
-      btnSave.textContent = 'Сохранить';
-      const btnCancel = document.createElement('button');
-      btnCancel.className = 'btn-small btn-secondary';
-      btnCancel.textContent = 'Отменить';
-      const btnWrap = document.createElement('div');
-      btnWrap.style.marginTop = '8px';
-      btnWrap.style.display = 'flex';
-      btnWrap.style.gap = '8px';
-      btnWrap.appendChild(btnSave);
-      btnWrap.appendChild(btnCancel);
-      editArea.parentNode.insertBefore(btnWrap, editArea.nextSibling);
-
-      btnSave.addEventListener('click', async () => {
-        const newText = editArea.value.trim();
-        if(!newText) return;
-        await updateMessage(key, { text: newText, timeEdited: Date.now() });
-        exitEditMode(key, editArea, btnWrap, textDiv);
-      });
-      btnCancel.addEventListener('click', () => {
-        exitEditMode(key, editArea, btnWrap, textDiv);
-      });
-    }
-
-    function exitEditMode(key, editArea, btnWrap, textDiv){
-      if(editArea) editArea.remove();
-      if(btnWrap) btnWrap.remove();
-      if(textDiv) textDiv.style.display = '';
-      const container = document.getElementById('msg-' + key);
-      if(container){
-        const controls = container.querySelector('.msg-controls');
-        if(controls) controls.style.display = '';
-      }
-    }
-
-    listenMessages();
-  </script>
+  // Пример: при загрузке — прокрутить вниз
+  setTimeout(()=> messages.scrollTop = messages.scrollHeight, 200);
+</script>
 </body>
 </html>
